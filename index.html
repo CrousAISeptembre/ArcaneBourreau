@@ -234,6 +234,356 @@ function coverHTML(resume){
     <h1>L'Arcane<br>du Bourreau</h1>
     <p class="muted">Théodore Vasseur, collectionneur de tarots anciens, a été retrouvé mort la nuit de son vernissage. Le meurtrier a laissé une carte majeure sur chaque scène qu'il a touchée. Reconstituez la nuit du crime, arcane après arcane.</p>
     <div class="divider"></div>
+    <button class="primary" id="start-btn">${resume?'Reprendre l’enquête':'Commencer l’enquête'}</button>
+    <p class="muted" style="margin-top:14px">Votre progression est sauvegardée automatiquement sur cet appareil.</p>
+  </div>`;
+}
+function bindCover(){
+  document.getElementById('start-btn').onclick = ()=>{ state._started=true; save(); render(); };
+}
+
+function railHTML(idx){
+  let nodes = chapters.map((c,i)=>{
+    const cls = state.done[c.id] ? 'done' : (i===idx ? 'active':'');
+    return `<div class="node ${cls}" title="${c.name}">${c.num}</div>`;
+  }).join('');
+  nodes += `<div class="node ${idx>=chapters.length?'active':''}" title="Le Jugement">XX</div>`;
+  return `<div class="rail">${nodes}</div>`;
+}
+
+function chapterHTML(ch, idx){
+  const cluesHTML = ch.clues.map(cl=>{
+    const solved = !!state.done[ch.id+'_'+cl.id] || allCluesResolved(ch);
+    const hintLvl = state.hints[cl.id]||0;
+    return `
+    <div class="clue" data-clue="${cl.id}">
+      <label class="clue-label">${cl.label}</label>
+      <div class="cipher">${cl.display}</div>
+      <input type="text" id="in-${cl.id}" placeholder="Votre réponse…" autocomplete="off" ${solved?'disabled':''} value="${solved?cl.answer:''}">
+      <div class="row">
+        <button data-act="check" data-id="${cl.id}" ${solved?'disabled':''}>Valider</button>
+        <button data-act="hint" data-id="${cl.id}" ${solved?'disabled':''}>Indice (${hintLvl}/2)</button>
+      </div>
+      <div class="feedback" id="fb-${cl.id}"></div>
+      ${hintLvl>0?`<div class="hint-box" id="hint-${cl.id}">${hintLvl>=1?cl.hint1:''}${hintLvl>=2?'<br>'+cl.hint2:''}</div>`:''}
+    </div>`;
+  }).join('<div class="divider"></div>');
+
+  const chapterDone = state.done[ch.id];
+  return `
+  <div class="card">
+    <div class="watermark">${ch.num}</div>
+    <div class="arcane-num">Arcane ${ch.num}</div>
+    <h2>${ch.name}</h2>
+    ${ch.intro}
+    <div class="divider"></div>
+    ${cluesHTML}
+    ${chapterDone?`<div class="divider"></div>${ch.resolution}<div class="row"><button class="primary" id="next-btn">Continuer</button></div>`:''}
+  </div>`;
+}
+
+function allCluesResolved(ch){
+  return ch.clues.every(cl=>state.done[ch.id+'_'+cl.id]);
+}
+
+function bindChapter(ch){
+  document.querySelectorAll('[data-act=check]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.id;
+      const cl = ch.clues.find(c=>c.id===id);
+      const input = document.getElementById('in-'+id);
+      const fb = document.getElementById('fb-'+id);
+      if(normalize(input.value) === normalize(cl.answer)){
+        state.done[ch.id+'_'+id] = true;
+        input.classList.remove('wrong'); input.classList.add('right');
+        fb.textContent = "Correct."; fb.className='feedback ok';
+        if(allCluesResolved(ch)){ state.done[ch.id]=true; }
+        save(); render();
+      } else {
+        input.classList.add('wrong');
+        fb.textContent = "Ce n'est pas la bonne réponse."; fb.className='feedback no';
+      }
+    };
+  });
+  document.querySelectorAll('[data-act=hint]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.id;
+      const lvl = Math.min((state.hints[id]||0)+1, 2);
+      state.hints[id] = lvl;
+      save(); render();
+    };
+  });
+  const nextBtn = document.getElementById('next-btn');
+  if(nextBtn) nextBtn.onclick = ()=>{ render(); window.scrollTo({top:0,behavior:'smooth'}); };
+}
+
+function finalHTML(){
+  if(state.solved){
+    return `
+    <div class="card">
+      <div class="watermark">XX</div>
+      <div class="arcane-num">Arcane XX</div>
+      <h2>Le Jugement</h2>
+      <p>Devant le commissaire, vous déposez le registre falsifié, le testament raturé et le coupe-papier. <b>Grimaux</b> ne nie plus : acculé par les dettes impayées du neveu et menacé d'être démasqué par Vasseur lors du vernissage, il avait frappé dans un instant de panique, laissant derrière lui une carte de tarot par scène, comme un rituel pour brouiller les pistes.</p>
+      <p>L'enquête est close. Le Tarot de Charmentray reviendra finalement à une institution — loin des mains qui l'ont trop convoité.</p>
+      <div class="row"><button id="restart-btn">Recommencer l'enquête</button></div>
+    </div>`;
+  }
+  const sel = state.accusation;
+  const suspectsHTML = suspects.map(s=>`
+    <div class="suspect ${sel===s.id?'sel':''}" data-id="${s.id}">
+      <b>${s.name}</b><span>${s.role}</span>
+    </div>`).join('');
+  return `
+  <div class="card">
+    <div class="watermark">XX</div>
+    <div class="arcane-num">Arcane XX</div>
+    <h2>Le Jugement</h2>
+    <p>Toutes les pistes convergent. Il est temps de nommer le coupable devant le commissaire — et d'expliquer ce qui l'a poussé à agir.</p>
+    <div class="divider"></div>
+    <label class="clue-label">Accusez</label>
+    <div class="suspects">${suspectsHTML}</div>
+    <label class="clue-label">Le mobile, en un mot</label>
+    <input type="text" id="in-motive" placeholder="Votre réponse…" autocomplete="off" value="${state.motive||''}">
+    <div class="row"><button class="primary" id="accuse-btn">Rendre le jugement</button></div>
+    <div class="feedback" id="fb-final"></div>
+  </div>`;
+}
+
+function bindFinal(){
+  document.querySelectorAll('.suspect').forEach(el=>{
+    el.onclick = ()=>{ state.accusation = el.dataset.id; save(); render(); };
+  });
+  const btn = document.getElementById('accuse-btn');
+  if(!btn) return;
+  btn.onclick = ()=>{
+    const motiveInput = document.getElementById('in-motive');
+    state.motive = motiveInput.value;
+    const fb = document.getElementById('fb-final');
+    const motiveOk = ['DETTE','DETTES','USURE','ARGENT','CREANCE'].includes(normalize(state.motive));
+    if(state.accusation === 'grimaux' && motiveOk){
+      state.solved = true; save(); render(); window.scrollTo({top:0,behavior:'smooth'});
+    } else {
+      fb.textContent = "Le commissaire n'est pas convaincu — revoyez les pièces du dossier.";
+      fb.className = 'feedback no';
+      save();
+    }
+  };
+}
+
+document.addEventListener('click', (e)=>{
+  if(e.target && e.target.id==='restart-btn'){
+    localStorage.removeItem(KEY);
+    state = { done:{}, hints:{}, accusation:null, motive:'', solved:false };
+    render();
+  }
+});
+
+render();
+</script>
+<footer>L'Arcane du Bourreau — enquête originale, jouable en solo.</footer>
+</body>
+</html>
+.rail .node{width:34px; height:34px; border-radius:50%; border:1px solid var(--gold-dim); display:flex; align-items:center; justify-content:center; font-size:.72em; color:var(--muted); background:var(--panel)}
+.rail .node.done{background:var(--gold); color:#1a1408; border-color:var(--gold); font-weight:700}
+.rail .node.active{border-color:var(--gold); color:var(--gold); box-shadow:0 0 0 3px rgba(199,163,90,.15)}
+
+/* cards / panels */
+.card{
+  background:linear-gradient(180deg, var(--panel2), var(--panel));
+  border:1px solid #3a2f47; border-radius:2px; padding:30px 26px; position:relative;
+  box-shadow:0 20px 50px rgba(0,0,0,.45);
+}
+.card::before,.card::after{content:""; position:absolute; width:14px; height:14px; border:1px solid var(--gold-dim); opacity:.6}
+.card::before{top:10px; left:10px; border-right:none; border-bottom:none}
+.card::after{bottom:10px; right:10px; border-left:none; border-top:none}
+.watermark{position:absolute; right:14px; top:6px; font-size:5.5em; color:var(--gold); opacity:.06; font-style:italic; line-height:1; pointer-events:none; user-select:none}
+
+.cipher{
+  font-family:'Cormorant Garamond',serif; font-style:italic; letter-spacing:.35em; font-size:1.3em;
+  color:var(--parch); background:#0f0a17; border:1px dashed #40354d; padding:14px 10px; text-align:center; margin:16px 0;
+}
+
+fieldset{border:none; padding:0; margin:0 0 18px}
+label.clue-label{display:block; font-size:.85em; color:var(--gold-dim); text-transform:uppercase; letter-spacing:.1em; margin:0 0 6px}
+input[type=text]{
+  width:100%; background:#0f0a17; border:1px solid #40354d; color:var(--parch); font-family:inherit;
+  font-size:1.05em; padding:10px 12px; border-radius:2px;
+}
+input[type=text]:focus{outline:2px solid var(--gold); outline-offset:1px}
+input[type=text].wrong{border-color:var(--blood)}
+input[type=text].right{border-color:#5c8a5c}
+
+.row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:8px}
+button{
+  font-family:inherit; font-size:.92em; letter-spacing:.05em; cursor:pointer; border-radius:2px; padding:9px 16px;
+  background:transparent; border:1px solid var(--gold-dim); color:var(--gold);
+}
+button:hover{border-color:var(--gold); background:rgba(199,163,90,.08)}
+button.primary{background:var(--gold); color:#1a1408; border-color:var(--gold); font-weight:700}
+button.primary:hover{background:#d9b872}
+button:disabled{opacity:.4; cursor:default}
+
+.feedback{margin-top:6px; font-size:.9em; min-height:1.3em}
+.feedback.ok{color:#8fc48f}
+.feedback.no{color:#d98080}
+.hint-box{margin-top:10px; padding:10px 12px; background:#170f22; border-left:2px solid var(--gold-dim); font-size:.92em; color:var(--muted)}
+
+.suspects{display:grid; gap:10px; margin:16px 0}
+.suspect{border:1px solid #40354d; padding:12px 14px; border-radius:2px; cursor:pointer}
+.suspect:hover{border-color:var(--gold-dim)}
+.suspect.sel{border-color:var(--gold); background:rgba(199,163,90,.08)}
+.suspect b{color:var(--parch)}
+.suspect span{display:block; font-size:.85em; color:var(--muted); margin-top:2px}
+
+footer{text-align:center; color:var(--muted); font-size:.8em; margin-top:30px}
+.center{text-align:center}
+.divider{height:1px; background:linear-gradient(90deg,transparent,#40354d,transparent); margin:22px 0}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+const KEY='arcane-bourreau-save';
+
+function normalize(s){
+  return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+}
+
+const chapters = [
+{
+  id:'mat', num:'0', name:'Le Mat',
+  intro:"<p>Le manoir de Théodore Vasseur sent la cire froide et le papier ancien. On l'a trouvé ce matin dans son cabinet, affaissé sur son secrétaire, une carte de tarot posée face contre le bois. C'était le soir du vernissage de sa collection — une vingtaine d'invités, une seule victime.</p><p>Vous retournez la carte : <b>Le Mat</b>. Au dos, une inscription tracée à l'encre, comme un mot qu'on aurait laissé filer, sans direction, sans but — à l'image de l'arcane qui erre hors du jeu.</p>",
+  clues:[{
+    id:'mat1', label:"Message au dos de la carte",
+    display:'EUOR',
+    hint1:"Le Mat n'avance jamais tout droit. Essayez de lire autrement qu'à l'endroit.",
+    hint2:"Lisez les lettres à l'envers, de droite à gauche.",
+    answer:'ROUE'
+  }],
+  resolution:"<p>À l'envers, le mot se lit clairement : <b>ROUE</b>. Une carte, un nom d'arcane, une direction à suivre. Sur le bureau de Vasseur, un dossier est resté ouvert : celui de son testament.</p>"
+},
+{
+  id:'roue', num:'X', name:'La Roue de Fortune',
+  intro:"<p>Le testament de Vasseur a été réécrit trois semaines avant sa mort. Deux pistes s'ouvrent sur le bureau : le nom de l'héritier, et une note de dette griffonnée dans la marge.</p>",
+  clues:[
+    {
+      id:'roue1', label:"Piste A — L'héritier (lettre chiffrée trouvée dans le tiroir)",
+      display:'XOFOE',
+      hint1:"C'est un chiffre de César : chaque lettre a été décalée vers l'avant dans l'alphabet.",
+      hint2:"Le décalage correspond toujours au numéro de l'arcane du chapitre — ici, la Roue de Fortune porte le nombre X (10). Décalez chaque lettre de 10 rangs vers l'arrière.",
+      answer:'NEVEU'
+    },
+    {
+      id:'roue2', label:"Piste B — La dette (mises au jeu inscrites en marge)",
+      display:"IV deniers de bronze, XV pièces d'argent, IX pièces d'or",
+      hint1:"Ce sont des chiffres romains.",
+      hint2:"Additionnez les trois valeurs : IV + XV + IX.",
+      answer:'28'
+    }
+  ],
+  resolution:"<p>Le <b>neveu</b> hérite de tout. Mais la marge du testament porte aussi une dette de <b>28</b> — vingt-huit mille francs, empruntés à un certain Grimaux, prêteur discret de la bonne société. Un mobile ne suffit pas : il faut un alibi qui tienne, ou qui s'effondre.</p>"
+},
+{
+  id:'justice', num:'VIII', name:'La Justice',
+  intro:"<p>Trois domestiques ont été interrogés sur la soirée du vernissage. Leurs versions divergent — sauf sur un point.</p>",
+  clues:[
+    {
+      id:'justice1', label:"Piste A — Qui servait le vin ce soir-là ? (carnet du personnel, chiffré)",
+      display:'UIRWZLWUM',
+      hint1:"Encore un chiffre de César.",
+      hint2:"La Justice porte le nombre VIII (8). Décalez chaque lettre de 8 rangs vers l'arrière.",
+      answer:'MAJORDOME'
+    },
+    {
+      id:'justice2', label:"Piste B — À quelle heure la silhouette a-t-elle été vue près du cabinet ?",
+      display:"Le jardinier jure avoir vu une ombre à 21h. La cuisinière parle de 22h. Le cocher dit aussi 22h, precisant avoir entendu l'horloge sonner juste après.",
+      hint1:"Un seul témoignage est isolé ; deux autres se recoupent.",
+      hint2:"Retenez l'heure confirmée par deux témoins sur trois.",
+      answer:'22'
+    }
+  ],
+  resolution:"<p>Le <b>majordome</b> était bien présent, occupé à servir le vin. Deux témoins situent une ombre suspecte vers <b>22h</b>. La balance de la Justice penche — mais elle n'a pas encore tranché qui elle innocente et qui elle accuse.</p>"
+},
+{
+  id:'diable', num:'XV', name:'Le Diable',
+  intro:"<p>Le médecin légiste a laissé une note scellée : la nature de l'arme n'a rien d'une évidence. Elle traînait sous les yeux de tous, familière, presque anodine.</p>",
+  clues:[{
+    id:'diable1', label:"Rapport du légiste, chiffré",
+    display:'RDJETEPEXTG',
+    hint1:"Toujours un chiffre de César.",
+    hint2:"Le Diable porte le nombre XV (15). Décalez chaque lettre de 15 rangs vers l'arrière.",
+    answer:'COUPEPAPIER'
+  }],
+  resolution:"<p>Un <b>coupe-papier</b> — l'un de ceux que Vasseur laissait sur chaque table pour ouvrir son courrier de collectionneur. L'arme n'appartient à personne en particulier ; le Diable ne signe jamais ses tentations. Il ne reste plus qu'à voir qui, dans cette maison, avait intérêt à s'effondrer devant les soupçons — ou à les faire porter par un autre.</p>"
+},
+{
+  id:'tour', num:'XVI', name:'La Tour',
+  intro:"<p>Une rumeur circule déjà parmi les invités : le majordome aurait un lourd passif avec Vasseur. On le dit prêt à s'effondrer sous l'accusation. Mais la Tour, dans le tarot, ne frappe jamais celui qu'on croit — elle fait tomber les fausses certitudes.</p>",
+  clues:[{
+    id:'tour1', label:"À qui la chute de la Tour profite-t-elle réellement ? (nommez l'innocent que la rumeur visait à tort)",
+    display:"Le majordome affirme avoir servi le vin jusqu'à 22h30, sans interruption — une version qui recoupe exactement les deux témoignages déjà recueillis sur l'heure de l'ombre suspecte.",
+    hint1:"Comparez cette version avec ce que vous avez déjà établi à la Justice (VIII).",
+    hint2:"Son alibi colle parfaitement aux deux témoignages concordants relevés plus tôt.",
+    answer:'MAJORDOME'
+  }],
+  resolution:"<p>La Tour s'effondre — mais sur la rumeur elle-même. Le <b>majordome</b> est innocenté : son alibi tient. La suspicion facile s'écroule, révélant en dessous une figure plus discrète, celle qu'on n'avait pas encore regardée en face.</p>"
+},
+{
+  id:'mort', num:'XIII', name:'La Mort',
+  intro:"<p>Reste un nom que personne n'a prononcé de la soirée : celui du prêteur mentionné dans la marge du testament. Un registre de comptes, retrouvé dans le secrétaire de Vasseur, porte un nom chiffré à la toute dernière page.</p>",
+  clues:[{
+    id:'mort1', label:"Dernière page du registre, chiffrée",
+    display:'TEVZNHK',
+    hint1:"Chiffre de César, une dernière fois.",
+    hint2:"La Mort porte le nombre XIII (13). Décalez chaque lettre de 13 rangs — un chiffrement si symétrique qu'il se décode avec le même décalage dans les deux sens.",
+    answer:'GRIMAUX'
+  }],
+  resolution:"<p><b>Grimaux</b>. Le prêteur à qui le neveu devait 28 000 francs — une dette que Vasseur, en découvrant les livres de comptes falsifiés, s'apprêtait à révéler publiquement lors du vernissage. La Mort ne signifie jamais la fin : elle signifie la transformation d'un simple créancier en meurtrier acculé.</p>"
+}
+];
+
+const suspects = [
+  {id:'neveu', name:'Julien Vasseur', role:"Le neveu et héritier, criblé de dettes."},
+  {id:'majordome', name:'Le majordome', role:"Présent toute la soirée, alibi confirmé par deux témoins."},
+  {id:'comtesse', name:'La comtesse de Salvin', role:"Collectionneuse rivale, jalouse de la pièce maîtresse de Vasseur."},
+  {id:'grimaux', name:'Grimaux', role:"Prêteur discret, créancier du neveu."}
+];
+
+let state = load();
+function load(){
+  try{ const s = JSON.parse(localStorage.getItem(KEY)); if(s) return s; }catch(e){}
+  return { done:{}, hints:{}, accusation:null, motive:'', solved:false };
+}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+
+function currentIndex(){
+  for(let i=0;i<chapters.length;i++){ if(!state.done[chapters[i].id]) return i; }
+  return chapters.length; // all done -> final
+}
+
+function render(){
+  const app = document.getElementById('app');
+  const idx = currentIndex();
+  const started = Object.keys(state.done).length>0 || idx>0 || state._started;
+  if(!state._started && idx===0 && !localStorage.getItem(KEY)){
+    app.innerHTML = coverHTML(false);
+    bindCover();
+    return;
+  }
+  app.innerHTML = railHTML(idx) + (idx < chapters.length ? chapterHTML(chapters[idx], idx) : finalHTML());
+  if(idx < chapters.length) bindChapter(chapters[idx]);
+  else bindFinal();
+}
+
+function coverHTML(resume){
+  return `
+  <div class="center card" style="padding:48px 26px">
+    <div class="arcane-num">Une enquête solo</div>
+    <h1>L'Arcane<br>du Bourreau</h1>
+    <p class="muted">Théodore Vasseur, collectionneur de tarots anciens, a été retrouvé mort la nuit de son vernissage. Le meurtrier a laissé une carte majeure sur chaque scène qu'il a touchée. Reconstituez la nuit du crime, arcane après arcane.</p>
+    <div class="divider"></div>
     <button class="primary" id="start-btn">${resume?'Reprendre l\\'enquête':'Commencer l\\'enquête'}</button>
     <p class="muted" style="margin-top:14px">Votre progression est sauvegardée automatiquement sur cet appareil.</p>
   </div>`;
